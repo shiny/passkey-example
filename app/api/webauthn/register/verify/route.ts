@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const response = body?.response;
     const host = request.headers.get('host') || undefined;
 
-    const user = getUser(username);
+    const user = await getUser(username);
     if (!user || !user.currentChallenge) {
       return NextResponse.json({ error: 'No registration in progress.' }, { status: 400 });
     }
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const { verified, registrationInfo } = verification;
 
     if (verified && registrationInfo) {
-      addDevice(username, {
+      await addDevice(username, {
         credentialID: registrationInfo.credentialID,
         credentialPublicKey: registrationInfo.credentialPublicKey,
         counter: registrationInfo.counter,
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       });
     }
 
-    setCurrentChallenge(user.username, undefined);
+    await setCurrentChallenge(user.username, undefined);
 
     return NextResponse.json({ verified });
   } catch (error) {

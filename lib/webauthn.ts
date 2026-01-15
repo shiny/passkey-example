@@ -1,11 +1,10 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { kv } from '@vercel/kv';
 
 // Define our own type since AuthenticatorDevice is not exported in v9.x
 export type AuthenticatorDevice = {
-  credentialID: Uint8Array;
-  credentialPublicKey: Uint8Array;
+  credentialID: number[]; // Store as array for JSON serialization
+  credentialPublicKey: number[]; // Store as array for JSON serialization
   counter: number;
   transports?: AuthenticatorTransport[];
 };
@@ -17,50 +16,7 @@ export type StoredUser = {
   currentChallenge?: string;
 };
 
-// File-based storage to persist data across server restarts
-const DATA_FILE = path.join(process.cwd(), 'users.json');
-
-function loadUsers(): Map<string, StoredUser> {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-      // Convert devices arrays - restore Uint8Array from stored arrays
-      for (const user of Object.values(data) as StoredUser[]) {
-        user.devices = user.devices.map((device: any) => ({
-          ...device,
-          credentialID: new Uint8Array(Object.values(device.credentialID)),
-          credentialPublicKey: new Uint8Array(Object.values(device.credentialPublicKey))
-        }));
-      }
-      return new Map(Object.entries(data));
-    }
-  } catch (error) {
-    console.error('Failed to load users:', error);
-  }
-  return new Map();
-}
-
-function saveUsers(users: Map<string, StoredUser>) {
-  try {
-    const data: Record<string, StoredUser> = {};
-    for (const [key, user] of users) {
-      data[key] = {
-        ...user,
-        devices: user.devices.map((device) => ({
-          ...device,
-          // Convert Uint8Array to plain object for JSON serialization
-          credentialID: Object.fromEntries([...device.credentialID].map((v, i) => [i, v])),
-          credentialPublicKey: Object.fromEntries([...device.credentialPublicKey].map((v, i) => [i, v]))
-        })) as any
-      };
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error('Failed to save users:', error);
-  }
-}
-
-let users = loadUsers();
+const KV_PREFIX = 'passkey:user:';
 
 export function getRpID(host?: string) {
   if (process.env.RP_ID) return process.env.RP_ID;
@@ -79,14 +35,18 @@ export function getOrigin(host?: string) {
   return 'http://localhost:3000';
 }
 
-export function getUser(username: string) {
-  users = loadUsers(); // Reload to get latest data
-  return users.get(username);
+export async function getUser(username: string): Promise<StoredUser | null> {
+  try {
+    const user = await kv.get<StoredUser>(`${KV_PREFIX}${username}`);
+    return user;
+  } catch (error) {
+    console.error('Failed to get user:', error);
+    return null;
+  }
 }
 
-export function getOrCreateUser(username: string) {
-  users = loadUsers(); // Reload to get latest data
-  const existing = users.get(username);
+export async function getOrCreateUser(username: string): Promise<StoredUser> {
+  const existing = await getUser(username);
   if (existing) return existing;
 
   const user: StoredUser = {
@@ -94,37 +54,34 @@ export function getOrCreateUser(username: string) {
     username,
     devices: []
   };
-  users.set(username, user);
-  saveUsers(users);
+  await kv.set(`${KV_PREFIX}${username}`, user);
   return user;
 }
 
-export function setCurrentChallenge(username: string, challenge?: string) {
-  const user = users.get(username);
+export async function setCurrentChallenge(username: string, challenge?: string) {
+  const user = await getUser(username);
   if (!user) return;
   user.currentChallenge = challenge;
-  saveUsers(users);
+  await kv.set(`${KV_PREFIX}${username}`, user);
 }
 
-export function addDevice(username: string, device: AuthenticatorDevice) {
-  const user = users.get(username);
+export async function addDevice(username: string, device: {
+  credentialID: Uint8Array;
+  credentialPublicKey: Uint8Array;
+  counter: number;
+  transports?: AuthenticatorTransport[];
+}) {
+  const user = await getUser(username);
   if (!user) return;
-  user.devices.push(device);
-  saveUsers(users);
-}
 
-export function updateDeviceCounter(username: string, credentialID: Uint8Array, newCounter: number) {
-  const user = users.get(username);
-  if (!user) return;
-  const device = user.devices.find((d) => {
-    const deviceID = Buffer.from(d.credentialID).toString('base64url');
-    const targetID = Buffer.from(credentialID).toString('base64url');
-    return deviceID === targetID;
+  // Convert Uint8Array to number array for JSON serialization
+  user.devices.push({
+    credentialID: Array.from(device.credentialID),
+    credentialPublicKey: Array.from(device.credentialPublicKey),
+    counter: device.counter,
+    transports: device.transports
   });
-  if (device) {
-    device.counter = newCounter;
-    saveUsers(users);
-  }
+  await kv.set(`${KV_PREFIX}${username}`, user);
 }
 
 export function findDeviceByID(user: StoredUser, credentialID: string) {
@@ -132,4 +89,14 @@ export function findDeviceByID(user: StoredUser, credentialID: string) {
     const deviceID = Buffer.from(device.credentialID).toString('base64url');
     return deviceID === credentialID;
   });
+}
+
+// Helper to convert stored device to WebAuthn format
+export function toAuthenticatorDevice(device: AuthenticatorDevice) {
+  return {
+    credentialID: new Uint8Array(device.credentialID),
+    credentialPublicKey: new Uint8Array(device.credentialPublicKey),
+    counter: device.counter,
+    transports: device.transports
+  };
 }

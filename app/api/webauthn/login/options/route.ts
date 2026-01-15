@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     const username = body?.username || 'demo';
     const host = request.headers.get('host') || undefined;
 
-    const user = getUser(username);
+    const user = await getUser(username);
     if (!user || user.devices.length === 0) {
       return NextResponse.json({ error: 'No passkey registered.' }, { status: 400 });
     }
@@ -16,14 +16,14 @@ export async function POST(request: Request) {
     const options = await generateAuthenticationOptions({
       rpID: getRpID(host),
       allowCredentials: user.devices.map((device) => ({
-        id: device.credentialID,
+        id: new Uint8Array(device.credentialID),
         type: 'public-key',
         transports: device.transports
       })),
       userVerification: 'preferred'
     });
 
-    setCurrentChallenge(user.username, options.challenge);
+    await setCurrentChallenge(user.username, options.challenge);
 
     return NextResponse.json(options);
   } catch (error) {
