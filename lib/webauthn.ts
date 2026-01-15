@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { kv } from '@vercel/kv';
+import Redis from 'ioredis';
 
 // Define our own type since AuthenticatorDevice is not exported in v9.x
 export type AuthenticatorDevice = {
@@ -15,6 +15,9 @@ export type StoredUser = {
   devices: AuthenticatorDevice[];
   currentChallenge?: string;
 };
+
+// Initialize Redis client
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 const KV_PREFIX = 'passkey:user:';
 
@@ -37,8 +40,9 @@ export function getOrigin(host?: string) {
 
 export async function getUser(username: string): Promise<StoredUser | null> {
   try {
-    const user = await kv.get<StoredUser>(`${KV_PREFIX}${username}`);
-    return user;
+    const data = await redis.get(`${KV_PREFIX}${username}`);
+    if (!data) return null;
+    return JSON.parse(data) as StoredUser;
   } catch (error) {
     console.error('Failed to get user:', error);
     return null;
@@ -54,7 +58,7 @@ export async function getOrCreateUser(username: string): Promise<StoredUser> {
     username,
     devices: []
   };
-  await kv.set(`${KV_PREFIX}${username}`, user);
+  await redis.set(`${KV_PREFIX}${username}`, JSON.stringify(user));
   return user;
 }
 
@@ -62,7 +66,7 @@ export async function setCurrentChallenge(username: string, challenge?: string) 
   const user = await getUser(username);
   if (!user) return;
   user.currentChallenge = challenge;
-  await kv.set(`${KV_PREFIX}${username}`, user);
+  await redis.set(`${KV_PREFIX}${username}`, JSON.stringify(user));
 }
 
 export async function addDevice(username: string, device: {
@@ -81,7 +85,7 @@ export async function addDevice(username: string, device: {
     counter: device.counter,
     transports: device.transports
   });
-  await kv.set(`${KV_PREFIX}${username}`, user);
+  await redis.set(`${KV_PREFIX}${username}`, JSON.stringify(user));
 }
 
 export function findDeviceByID(user: StoredUser, credentialID: string) {
