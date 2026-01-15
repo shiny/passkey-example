@@ -1,7 +1,14 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { AuthenticatorDevice } from '@simplewebauthn/server';
+
+// Define our own type since AuthenticatorDevice is not exported in v9.x
+export type AuthenticatorDevice = {
+  credentialID: Uint8Array;
+  credentialPublicKey: Uint8Array;
+  counter: number;
+  transports?: AuthenticatorTransport[];
+};
 
 export type StoredUser = {
   id: string;
