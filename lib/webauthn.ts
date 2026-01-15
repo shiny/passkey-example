@@ -62,12 +62,21 @@ function saveUsers(users: Map<string, StoredUser>) {
 
 let users = loadUsers();
 
-export function getRpID() {
-  return process.env.RP_ID ?? 'localhost';
+export function getRpID(host?: string) {
+  if (process.env.RP_ID) return process.env.RP_ID;
+  if (host) return host.split(':')[0]; // Remove port if present
+  return 'localhost';
 }
 
-export function getOrigin() {
-  return process.env.RP_ORIGIN ?? 'http://localhost:3000';
+export function getOrigin(host?: string) {
+  if (process.env.RP_ORIGIN) return process.env.RP_ORIGIN;
+  if (host) {
+    // Use https for production, http for localhost
+    const isLocalhost = host.startsWith('localhost') || host.startsWith('127.0.0.1');
+    const protocol = isLocalhost ? 'http' : 'https';
+    return `${protocol}://${host}`;
+  }
+  return 'http://localhost:3000';
 }
 
 export function getUser(username: string) {
