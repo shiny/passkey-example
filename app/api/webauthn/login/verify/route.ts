@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const username = body?.username || 'demo';
     const response = body?.response;
+    const host = request.headers.get('host') || undefined;
 
     const user = getUser(username);
     if (!user || !user.currentChallenge) {
@@ -27,8 +28,8 @@ export async function POST(request: Request) {
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge: user.currentChallenge,
-      expectedOrigin: getOrigin(),
-      expectedRPID: getRpID(),
+      expectedOrigin: getOrigin(host),
+      expectedRPID: getRpID(host),
       authenticator: device
     });
 

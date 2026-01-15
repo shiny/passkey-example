@@ -6,6 +6,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const username = body?.username || 'demo';
+    const host = request.headers.get('host') || undefined;
 
     const user = getUser(username);
     if (!user || user.devices.length === 0) {
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
     }
 
     const options = await generateAuthenticationOptions({
-      rpID: getRpID(),
+      rpID: getRpID(host),
       allowCredentials: user.devices.map((device) => ({
         id: device.credentialID,
         type: 'public-key',
